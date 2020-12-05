@@ -35,6 +35,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define RX_BUFFER_SIZE 4
+#define NOTE_BUFFER_SIZE 6
+#define C2 36
+#define E5 83
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -50,6 +54,7 @@ TIM_HandleTypeDef htim14;
 
 UART_HandleTypeDef huart4;
 UART_HandleTypeDef huart3;
+DMA_HandleTypeDef hdma_uart4_rx;
 
 /* USER CODE BEGIN PV */
 
@@ -58,17 +63,31 @@ UART_HandleTypeDef huart3;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_UART4_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM14_Init(void);
 static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
+
+// LCD
+uint16_t ID = 0;
+
+// Debug
+char message[] = "Ya casi lo logramos, brow\r\n";
+char okay_message[] = "OK\r\n";
+
+// Serial
+uint8_t rx_buffer[RX_BUFFER_SIZE] = {0};
+uint8_t note_buffer[NOTE_BUFFER_SIZE] = {0};
+uint8_t current_note_in_buffer = 0;
+
+// Interrupción
 volatile bool EXT_BTN_1_state = true;
 volatile bool EXT_BTN_2_state = true;
 volatile bool EXT_BTN_3_state = true;
 volatile bool EXT_BTN_4_state = true;
-uint16_t ID = 0;
 
 /* USER CODE END PFP */
 
@@ -105,6 +124,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_UART4_Init();
   MX_USART3_UART_Init();
   MX_TIM2_Init();
@@ -112,15 +132,20 @@ int main(void)
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start(&htim1);
+  HAL_UART_Receive_DMA(&huart4, rx_buffer, sizeof(rx_buffer)/sizeof(char));
+
   ID = readID();
   HAL_Delay(100);
   tft_init(ID);
-  setRotation(0);
-  setFont(&mono12x7bold);
-  setTextSize(1);
-  setTextColor(BLACK);
-  setCursor(80, 20);
-  testFilledCircles(10, WHITE);
+  fillScreen(BLACK);
+  setRotation(3);
+  drawCircle(160, 100, 40, WHITE);
+  drawCircle(160, 140, 40, WHITE);
+  drawCircle(120, 120, 40, WHITE);
+  drawCircle(200, 120, 40, WHITE);
+
+  HAL_UART_Transmit(&huart3, (uint8_t *)message, sizeof(message)/sizeof(char) - 1, 1000);
+  HAL_UART_Transmit(&huart3, (uint8_t *)okay_message, sizeof(okay_message)/sizeof(char) - 1, 1000);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -129,24 +154,30 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
 		  if(!EXT_BTN_1_state){
+			  HAL_UART_Transmit(&huart3, (uint8_t *)okay_message, sizeof(okay_message)/sizeof(char) - 1, 1000);
 			  HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
+			  testFilledCircles(10, WHITE);
 			  EXT_BTN_1_state = true;
 		  }
 		  if(!EXT_BTN_2_state){
+			  HAL_UART_Transmit(&huart3, (uint8_t *)okay_message, sizeof(okay_message)/sizeof(char) - 1, 1000);
 			  HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
+			  testTriangles();
 			  EXT_BTN_2_state = true;
 		  }
 		  if(!EXT_BTN_3_state){
+			  HAL_UART_Transmit(&huart3, (uint8_t *)okay_message, sizeof(okay_message)/sizeof(char) - 1, 1000);
 			  HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
+			  testRoundRects();
 			  EXT_BTN_3_state = true;
 		  }
 		  if(!EXT_BTN_4_state){
+			  HAL_UART_Transmit(&huart3, (uint8_t *)okay_message, sizeof(okay_message)/sizeof(char) - 1, 1000);
 			  HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
+			  fillScreen(BLACK);
 			  EXT_BTN_4_state = true;
 		  }
-//		  scrolldown(200);
 	}
   /* USER CODE END 3 */
 }
@@ -400,6 +431,22 @@ static void MX_USART3_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Stream2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -583,8 +630,18 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		  HAL_TIM_Base_Stop(&htim2);
 	  }
   }
-
-
+}
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	for(int i = 0; i < RX_BUFFER_SIZE; i++){
+		if(rx_buffer[i] >= C2 && rx_buffer[i] <= E5){
+			note_buffer[current_note_in_buffer] = rx_buffer[i];
+			current_note_in_buffer++;
+			if(current_note_in_buffer >= NOTE_BUFFER_SIZE){
+				current_note_in_buffer = 0;
+			}
+		}
+	}
 }
 /* USER CODE END 4 */
 
