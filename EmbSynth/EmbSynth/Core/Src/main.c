@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdbool.h>
+#include "math.h"
 #include "fonts.h"
 #include "tft.h"
 #include "functions.h"
@@ -35,10 +36,14 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define RX_BUFFER_SIZE 4
+#define RX_BUFFER_SIZE 3
 #define NOTE_BUFFER_SIZE 6
+#define PLAY_BUFFER_SIZE 3
 #define C2 36
-#define E5 83
+#define B5 83
+#define NEXT_NOTE 1.0595
+#define NS 20
+#define PI 3.1415926
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -48,8 +53,13 @@
 
 /* Private variables ---------------------------------------------------------*/
 
+DAC_HandleTypeDef hdac;
+DMA_HandleTypeDef hdma_dac1;
+DMA_HandleTypeDef hdma_dac2;
+
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim6;
 TIM_HandleTypeDef htim14;
 
 UART_HandleTypeDef huart4;
@@ -57,7 +67,7 @@ UART_HandleTypeDef huart3;
 DMA_HandleTypeDef hdma_uart4_rx;
 
 /* USER CODE BEGIN PV */
-
+void get_sineval();
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -69,10 +79,15 @@ static void MX_USART3_UART_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM14_Init(void);
 static void MX_TIM1_Init(void);
+static void MX_DAC_Init(void);
+static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
 
 // LCD
 uint16_t ID = 0;
+uint8_t cont_am = 0;
+uint8_t cont_fm = 0;
+uint8_t cont_lp = 0;
 
 // Debug
 char message[] = "Ya casi lo logramos, brow\r\n";
@@ -88,6 +103,15 @@ volatile bool EXT_BTN_1_state = true;
 volatile bool EXT_BTN_2_state = true;
 volatile bool EXT_BTN_3_state = true;
 volatile bool EXT_BTN_4_state = true;
+
+// Audio
+uint8_t play_note_buffer[PLAY_BUFFER_SIZE] = {0};
+float value = 0.2;
+uint32_t var;
+uint32_t sine_val[NS];
+
+// Utils
+uint32_t i = 0;
 
 /* USER CODE END PFP */
 
@@ -130,6 +154,8 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM14_Init();
   MX_TIM1_Init();
+  MX_DAC_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start(&htim1);
   HAL_UART_Receive_DMA(&huart4, rx_buffer, sizeof(rx_buffer)/sizeof(char));
@@ -137,13 +163,57 @@ int main(void)
   ID = readID();
   HAL_Delay(100);
   tft_init(ID);
-  fillScreen(BLACK);
   setRotation(3);
-  drawCircle(160, 100, 40, WHITE);
-  drawCircle(160, 140, 40, WHITE);
-  drawCircle(120, 120, 40, WHITE);
-  drawCircle(200, 120, 40, WHITE);
 
+  // INTERFAZ GLOBAL
+  fillRect(0 , 0, 320, 240,(11)&BLUE | (((16)*2)<<5)&GREEN |  ((26)<<(5+6))&RED );//Color base
+  fillRect(20 , 80, 280, 120,BLUE_LEV(10) | GREEN_LEV(11) | RED_LEV(17));//Color de tablero
+  fillRect(20 , 20, 280, 50,BLUE_LEV(2) | GREEN_LEV(2) | RED_LEV(2));//Color de señales
+
+  // AM
+  fillTriangle(62, 105, 72, 90, 82, 105, RED);
+
+  // FM
+  fillTriangle(45, 140, 55, 125, 65, 140, RED);
+  fillTriangle(76, 140, 86, 125, 96, 140, RED);
+
+  // LP
+  fillTriangle(76, 175, 76, 160, 90, 175, RED);
+  fillRect(40, 160, 40, 15,RED);
+
+  // PIANO
+  fillRect(65 , 205, 190, 35,WHITE);
+  fillRect(85 , 205, 10 ,22,BLACK);
+  fillRect(115 , 205, 10 ,22,BLACK);
+  fillRect(165 , 205, 10 ,22,BLACK);
+  fillRect(195 , 205, 10 ,22,BLACK);
+  fillRect(225 , 205, 10 ,22,BLACK);
+
+  //CAJAS DE VOLUMEN
+  	//HORIZONTALES
+  fillRect(130 , 95, 152, 3,BLACK);
+  fillRect(130 , 112, 152, 3,BLACK);
+  fillRect(130 , 130, 152, 3,BLACK);
+  fillRect(130 , 147, 152, 3,BLACK);
+  fillRect(130 , 165, 152, 3,BLACK);
+  fillRect(130 , 182, 152, 3,BLACK);
+
+  	  //VERTICALES
+  for(i = 0; i < 5; i++){
+  	fillRect(130+(i*38) , 95, 3, 20,BLACK);
+  	fillRect(130+(i*38) , 130, 3, 20,BLACK);
+  	fillRect(130+(i*38) , 165, 3, 20,BLACK);
+  }
+
+  // Imagenes que identifican
+  for(i=0; i < 3; i++){
+  	fillRect(40 , 90+(i*35), 2, 20,RED);
+  	fillRect(30 , 105+(i*35), 70, 2,RED);
+  }
+  HAL_TIM_Base_Start(&htim6);
+  get_sineval();
+  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_1, sine_val, NS, DAC_ALIGN_12B_R);
+  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_2, sine_val, NS, DAC_ALIGN_12B_R);
   HAL_UART_Transmit(&huart3, (uint8_t *)message, sizeof(message)/sizeof(char) - 1, 1000);
   HAL_UART_Transmit(&huart3, (uint8_t *)okay_message, sizeof(okay_message)/sizeof(char) - 1, 1000);
   /* USER CODE END 2 */
@@ -157,30 +227,48 @@ int main(void)
 		  if(!EXT_BTN_1_state){
 			  HAL_UART_Transmit(&huart3, (uint8_t *)okay_message, sizeof(okay_message)/sizeof(char) - 1, 1000);
 			  HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
-			  testFilledCircles(10, WHITE);
+			  HAL_DAC_Stop_DMA(&hdac, DAC_CHANNEL_1);
 			  EXT_BTN_1_state = true;
 		  }
 		  if(!EXT_BTN_2_state){
 			  HAL_UART_Transmit(&huart3, (uint8_t *)okay_message, sizeof(okay_message)/sizeof(char) - 1, 1000);
 			  HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
-			  testTriangles();
+			  cont_am++;
+			  if(cont_am < 5){
+				  for (i = 0; i < cont_am; i++) fillRect(133+(i*38), 98, 35,14,BLUE);
+			  }else{
+			  		for (i = 0; i < 4; i++) fillRect(133+(i*38), 98, 35,14,BLUE_LEV(10) | GREEN_LEV(11) | RED_LEV(17));
+			  		cont_am = 0;
+			  }
 			  EXT_BTN_2_state = true;
 		  }
 		  if(!EXT_BTN_3_state){
 			  HAL_UART_Transmit(&huart3, (uint8_t *)okay_message, sizeof(okay_message)/sizeof(char) - 1, 1000);
 			  HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
-			  testRoundRects();
+			  cont_fm++;
+			  if(cont_fm < 5){
+				  for (i = 0; i < cont_fm; i++) fillRect(133+(i*38), 133, 35,14,BLUE);
+			  }else{
+				  for (i = 0; i < 4; i++) fillRect(133+(i*38), 133, 35,14,BLUE_LEV(10) | GREEN_LEV(11) | RED_LEV(17));
+				  cont_fm = 0;
+			  }
 			  EXT_BTN_3_state = true;
 		  }
 		  if(!EXT_BTN_4_state){
 			  HAL_UART_Transmit(&huart3, (uint8_t *)okay_message, sizeof(okay_message)/sizeof(char) - 1, 1000);
 			  HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
-			  fillScreen(BLACK);
+			  cont_lp ++;
+			  if(cont_lp < 5){
+				  for (i = 0; i < cont_lp; i++) fillRect(133+(i*38), 168, 35,14,BLUE);
+			  }else{
+				  for (i = 0; i < 4; i++) fillRect(133+(i*38), 168, 35,14,BLUE_LEV(10) | GREEN_LEV(11) | RED_LEV(17));
+				  cont_lp = 0;
+			  }
 			  EXT_BTN_4_state = true;
 		  }
 	}
-  /* USER CODE END 3 */
 }
+  /* USER CODE END 3 */
 
 /**
   * @brief System Clock Configuration
@@ -235,6 +323,50 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief DAC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_DAC_Init(void)
+{
+
+  /* USER CODE BEGIN DAC_Init 0 */
+
+  /* USER CODE END DAC_Init 0 */
+
+  DAC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN DAC_Init 1 */
+
+  /* USER CODE END DAC_Init 1 */
+  /** DAC Initialization
+  */
+  hdac.Instance = DAC;
+  if (HAL_DAC_Init(&hdac) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** DAC channel OUT1 config
+  */
+  sConfig.DAC_Trigger = DAC_TRIGGER_T6_TRGO;
+  sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
+  if (HAL_DAC_ConfigChannel(&hdac, &sConfig, DAC_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** DAC channel OUT2 config
+  */
+  if (HAL_DAC_ConfigChannel(&hdac, &sConfig, DAC_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN DAC_Init 2 */
+
+  /* USER CODE END DAC_Init 2 */
+
 }
 
 /**
@@ -326,6 +458,44 @@ static void MX_TIM2_Init(void)
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
+  * @brief TIM6 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM6_Init(void)
+{
+
+  /* USER CODE BEGIN TIM6_Init 0 */
+
+  /* USER CODE END TIM6_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM6_Init 1 */
+
+  /* USER CODE END TIM6_Init 1 */
+  htim6.Instance = TIM6;
+  htim6.Init.Prescaler = 36-1;
+  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim6.Init.Period = 100-1;
+  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM6_Init 2 */
+
+  /* USER CODE END TIM6_Init 2 */
 
 }
 
@@ -443,6 +613,12 @@ static void MX_DMA_Init(void)
   /* DMA1_Stream2_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
+  /* DMA1_Stream5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
+  /* DMA1_Stream6_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
 
 }
 
@@ -634,13 +810,18 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 	for(int i = 0; i < RX_BUFFER_SIZE; i++){
-		if(rx_buffer[i] >= C2 && rx_buffer[i] <= E5){
+		if(rx_buffer[i] >= C2 && rx_buffer[i] <= B5){
 			note_buffer[current_note_in_buffer] = rx_buffer[i];
 			current_note_in_buffer++;
 			if(current_note_in_buffer >= NOTE_BUFFER_SIZE){
 				current_note_in_buffer = 0;
 			}
 		}
+	}
+}
+void get_sineval(){
+	for(int cnt = 0; cnt < NS; cnt++){
+		sine_val[cnt] = (sin(2*cnt*2*PI/NS - PI/2)+1)*(4096/2);
 	}
 }
 /* USER CODE END 4 */

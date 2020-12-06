@@ -17,6 +17,10 @@
 #define YELLOW  0xFFE0
 #define WHITE   0xFFFF
 
+#define BLUE_LEV( level)  (   (level)&BLUE )                                      // level is in [0; 31]
+#define GREEN_LEV(level)  ( (((level)*2)<<5)&GREEN )                              // level is in [0; 31]
+#define RED_LEV(  level)  (  ((level)<<(5+6))&RED )                               // level is in [0; 31
+
 
 void drawPixel(int16_t x, int16_t y, uint16_t color);
 void fillScreen(uint16_t color);
