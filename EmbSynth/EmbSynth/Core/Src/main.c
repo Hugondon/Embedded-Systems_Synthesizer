@@ -39,7 +39,7 @@
 #define RX_BUFFER_SIZE 1
 #define NOTE_BUFFER_SIZE 1
 #define PLAY_BUFFER_SIZE 1
-#define C4 60
+#define C2 36
 #define B5 83
 #define NEXT_NOTE 1.05946
 #define NS 100
@@ -142,8 +142,22 @@ uint16_t triangle_LUT [] = {
 		745, 662, 579, 496, 414, 331, 248, 165, 83, 0
 };
 
-uint8_t PSC_LUT [] = {55, 52, 49, 43, 42, 38, 54, 54, 54, 48, 55, 56, 49, 54, 51, 48, 42, 47, 54, 51, 48, 51, 35, 52, 49, 54, 51, 29, 34, 43, 27, 23, 217, 51, 193, 91};
-uint8_t ARR_LUT [] = {25, 25, 25, 27, 26, 27, 18, 17, 16, 17, 14, 13, 14, 12, 12, 12, 13, 11, 9, 9, 9, 8, 11, 7, 7, 6, 6, 10, 8, 6, 9, 10, 1, 4, 1, 2};
+uint16_t square_LUT [] = {
+		4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095,
+		4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095,
+		4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095,
+		4095, 4095, 4095, 4095, 4095, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+};
+
+uint8_t PSC_LUT [] = {138, 130, 123, 116, 109, 103, 97, 92, 91, 86, 81, 83, 92, 87, 82, 77, 73, 69, 65, 61, 58, 63, 62, 61, 55, 52, 49,
+						43, 42, 38, 54, 54, 54, 48, 55, 56, 49, 54, 51, 48, 42, 47, 54, 51, 48, 51, 35, 52, 49, 54, 51, 29, 34, 43, 27,
+						23, 217, 51, 193, 91};
+uint8_t ARR_LUT [] = {40, 40, 40, 40, 40, 40, 40, 40, 38, 38, 38, 35, 30, 30, 30, 30, 30, 30, 30, 30, 30, 26, 25, 24, 25, 25, 25, 27, 26,
+						27, 18, 17, 16, 17, 14, 13, 14, 12, 12, 12, 13, 11, 9, 9, 9, 8, 11, 7, 7, 6, 6, 10, 8, 6, 9, 10, 1, 4, 1, 2};
+
 // Utils
 uint32_t i = 0;
 
@@ -244,6 +258,24 @@ int main(void)
   	fillRect(40 , 90+(i*35), 2, 20,RED);
   	fillRect(30 , 105+(i*35), 70, 2,RED);
   }
+
+  // Señales
+  // SINE
+  fillCircle(50, 44, 10 , WHITE);
+  fillCircle(50, 48, 10 , BLACK);
+
+  fillCircle(70, 42, 10 , WHITE);
+  fillCircle(70, 38, 10 , BLACK);
+
+  // Square
+  fillRect(97 ,60, 17, 3,WHITE);
+  fillRect(117 ,26, 20, 3,WHITE);
+  fillRect(134 ,60, 17, 3,WHITE);
+
+  fillRect(114 ,26, 3, 37,WHITE);
+  fillRect(134 ,26, 3, 34,WHITE);
+  fillRect(97 ,45, 3, 15,WHITE);
+
   HAL_TIM_Base_Start(&htim6);
 
   HAL_UART_Transmit(&huart3, (uint8_t *)message, sizeof(message)/sizeof(char) - 1, 1000);
@@ -856,7 +888,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 	note_received_flag = false;
 	for(int i = 0; i < RX_BUFFER_SIZE; i++){
-		if(rx_buffer[i] >= C4 && rx_buffer[i] <= B5){
+		if(rx_buffer[i] >= C2 && rx_buffer[i] <= B5){
 			note_buffer[current_note_buffer] = rx_buffer[i];
 			current_note_buffer++;
 			received_note_buffer = rx_buffer[i];
@@ -866,8 +898,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 			}
 			HAL_DAC_Stop_DMA(&hdac, DAC_CHANNEL_1);
 			HAL_DAC_Stop_DMA(&hdac, DAC_CHANNEL_2);
-			htim6.Init.Prescaler = PSC_LUT[received_note_buffer - 60] - 1;
-			htim6.Init.Period = ARR_LUT[received_note_buffer - 60] - 1;
+			htim6.Init.Prescaler = PSC_LUT[received_note_buffer - C2] - 1;
+			htim6.Init.Period = ARR_LUT[received_note_buffer - C2] - 1;
 			HAL_TIM_Base_Init(&htim6);
 			  switch(wave_selection){
 				  case 1:
@@ -875,16 +907,16 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_2, sine_LUT, NS, DAC_ALIGN_12B_R);
 					  break;
 				  case 2:
-					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_1, triangle_LUT, NS, DAC_ALIGN_12B_R);
-					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_2, triangle_LUT, NS, DAC_ALIGN_12B_R);
+					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_1, square_LUT, NS, DAC_ALIGN_12B_R);
+					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_2, square_LUT, NS, DAC_ALIGN_12B_R);
 					  break;
 				  case 3:
 					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_1, sawtooth_LUT, NS, DAC_ALIGN_12B_R);
 					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_2, sawtooth_LUT, NS, DAC_ALIGN_12B_R);
 					  break;
 				  case 4:
-					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_1, sawtooth_LUT, NS, DAC_ALIGN_12B_R);
-					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_2, sawtooth_LUT, NS, DAC_ALIGN_12B_R);
+					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_1, triangle_LUT, NS, DAC_ALIGN_12B_R);
+					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_2, triangle_LUT, NS, DAC_ALIGN_12B_R);
 					  break;
 				  default:
 					  wave_selection = 1;
