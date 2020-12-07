@@ -36,13 +36,13 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define RX_BUFFER_SIZE 3
-#define NOTE_BUFFER_SIZE 6
-#define PLAY_BUFFER_SIZE 3
-#define C2 36
+#define RX_BUFFER_SIZE 1
+#define NOTE_BUFFER_SIZE 1
+#define PLAY_BUFFER_SIZE 1
+#define C4 60
 #define B5 83
-#define NEXT_NOTE 1.0595
-#define NS 20
+#define NEXT_NOTE 1.05946
+#define NS 100
 #define PI 3.1415926
 /* USER CODE END PD */
 
@@ -67,7 +67,6 @@ UART_HandleTypeDef huart3;
 DMA_HandleTypeDef hdma_uart4_rx;
 
 /* USER CODE BEGIN PV */
-void get_sineval();
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -88,6 +87,8 @@ uint16_t ID = 0;
 uint8_t cont_am = 0;
 uint8_t cont_fm = 0;
 uint8_t cont_lp = 0;
+uint8_t wave_selection = 1;
+uint8_t cont_signal = 0;
 
 // Debug
 char message[] = "Ya casi lo logramos, brow\r\n";
@@ -96,7 +97,9 @@ char okay_message[] = "OK\r\n";
 // Serial
 uint8_t rx_buffer[RX_BUFFER_SIZE] = {0};
 uint8_t note_buffer[NOTE_BUFFER_SIZE] = {0};
-uint8_t current_note_in_buffer = 0;
+uint8_t current_note_buffer = 0;
+uint8_t received_note_buffer = 0;
+volatile bool note_received_flag = false;
 
 // Interrupción
 volatile bool EXT_BTN_1_state = true;
@@ -108,8 +111,39 @@ volatile bool EXT_BTN_4_state = true;
 uint8_t play_note_buffer[PLAY_BUFFER_SIZE] = {0};
 float value = 0.2;
 uint32_t var;
-uint32_t sine_val[NS];
 
+uint16_t sine_LUT [] = {
+		2048, 2177, 2307, 2435, 2562, 2686, 2808, 2928, 3043, 3154, 3261, 3364, 3460, 3552, 3637,
+		3715, 3787, 3852, 3910, 3960, 4003, 4037, 4064, 4082, 4093, 4095, 4089, 4074, 4052, 4021,
+		3982, 3936, 3882, 3821, 3752, 3677, 3595, 3507, 3413, 3313, 3209, 3099, 2986, 2868, 2748,
+		2624, 2499, 2371, 2242, 2112, 1983, 1853, 1724, 1596, 1471, 1347, 1227, 1109, 996, 886,
+		782, 682, 588, 500, 418, 343, 274, 213, 159, 113, 74, 43, 21, 6, 0,
+		2, 13, 31, 58, 92, 135, 185, 243, 308, 380, 458, 543, 635, 731, 834,
+		941, 1052, 1167, 1287, 1409, 1533, 1660, 1788, 1918, 2047
+};
+
+uint16_t sawtooth_LUT [] = {
+		0, 41, 83, 124, 165, 207, 248, 290, 331, 372, 414, 455, 496, 538, 579,
+		620, 662, 703, 745, 786, 827, 869, 910, 951, 993, 1034, 1075, 1117, 1158, 1200,
+		1241, 1282, 1324, 1365, 1406, 1448, 1489, 1530, 1572, 1613, 1655, 1696, 1737, 1779, 1820,
+		1861, 1903, 1944, 1985, 2027, 2068, 2110, 2151, 2192, 2234, 2275, 2316, 2358, 2399, 2440,
+		2482, 2523, 2565, 2606, 2647, 2689, 2730, 2771, 2813, 2854, 2895, 2937, 2978, 3020, 3061,
+		3102, 3144, 3185, 3226, 3268, 3309, 3350, 3392, 3433, 3475, 3516, 3557, 3599, 3640, 3681,
+		3723, 3764, 3805, 3847, 3888, 3930, 3971, 4012, 4054, 0
+};
+
+uint16_t triangle_LUT [] = {
+		0, 83, 165, 248, 331, 414, 496, 579, 662, 745, 827, 910, 993, 1075, 1158,
+		1241, 1324, 1406, 1489, 1572, 1655, 1737, 1820, 1903, 1985, 2068, 2151, 2234, 2316, 2399,
+		2482, 2565, 2647, 2730, 2813, 2895, 2978, 3061, 3144, 3226, 3309, 3392, 3475, 3557, 3640,
+		3723, 3805, 3888, 3971, 4054, 4054, 3971, 3888, 3805, 3723, 3640, 3557, 3475, 3392, 3309,
+		3226, 3144, 3061, 2978, 2895, 2813, 2730, 2647, 2565, 2482, 2399, 2316, 2234, 2151, 2068,
+		1985, 1903, 1820, 1737, 1655, 1572, 1489, 1406, 1324, 1241, 1158, 1075, 993, 910, 827,
+		745, 662, 579, 496, 414, 331, 248, 165, 83, 0
+};
+
+uint8_t PSC_LUT [] = {55, 52, 49, 43, 42, 38, 54, 54, 54, 48, 55, 56, 49, 54, 51, 48, 42, 47, 54, 51, 48, 51, 35, 52, 49, 54, 51, 29, 34, 43, 27, 23, 217, 51, 193, 91};
+uint8_t ARR_LUT [] = {25, 25, 25, 27, 26, 27, 18, 17, 16, 17, 14, 13, 14, 12, 12, 12, 13, 11, 9, 9, 9, 8, 11, 7, 7, 6, 6, 10, 8, 6, 9, 10, 1, 4, 1, 2};
 // Utils
 uint32_t i = 0;
 
@@ -179,7 +213,7 @@ int main(void)
 
   // LP
   fillTriangle(76, 175, 76, 160, 90, 175, RED);
-  fillRect(40, 160, 40, 15,RED);
+  fillRect(40, 161, 36, 14,RED);
 
   // PIANO
   fillRect(65 , 205, 190, 35,WHITE);
@@ -211,9 +245,7 @@ int main(void)
   	fillRect(30 , 105+(i*35), 70, 2,RED);
   }
   HAL_TIM_Base_Start(&htim6);
-  get_sineval();
-  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_1, sine_val, NS, DAC_ALIGN_12B_R);
-  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_2, sine_val, NS, DAC_ALIGN_12B_R);
+
   HAL_UART_Transmit(&huart3, (uint8_t *)message, sizeof(message)/sizeof(char) - 1, 1000);
   HAL_UART_Transmit(&huart3, (uint8_t *)okay_message, sizeof(okay_message)/sizeof(char) - 1, 1000);
   /* USER CODE END 2 */
@@ -225,38 +257,6 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 		  if(!EXT_BTN_1_state){
-			  HAL_UART_Transmit(&huart3, (uint8_t *)okay_message, sizeof(okay_message)/sizeof(char) - 1, 1000);
-			  HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
-			  HAL_DAC_Stop_DMA(&hdac, DAC_CHANNEL_1);
-			  EXT_BTN_1_state = true;
-		  }
-		  if(!EXT_BTN_2_state){
-			  HAL_UART_Transmit(&huart3, (uint8_t *)okay_message, sizeof(okay_message)/sizeof(char) - 1, 1000);
-			  HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
-			  cont_am++;
-			  if(cont_am < 5){
-				  for (i = 0; i < cont_am; i++) fillRect(133+(i*38), 98, 35,14,BLUE);
-			  }else{
-			  		for (i = 0; i < 4; i++) fillRect(133+(i*38), 98, 35,14,BLUE_LEV(10) | GREEN_LEV(11) | RED_LEV(17));
-			  		cont_am = 0;
-			  }
-			  EXT_BTN_2_state = true;
-		  }
-		  if(!EXT_BTN_3_state){
-			  HAL_UART_Transmit(&huart3, (uint8_t *)okay_message, sizeof(okay_message)/sizeof(char) - 1, 1000);
-			  HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
-			  cont_fm++;
-			  if(cont_fm < 5){
-				  for (i = 0; i < cont_fm; i++) fillRect(133+(i*38), 133, 35,14,BLUE);
-			  }else{
-				  for (i = 0; i < 4; i++) fillRect(133+(i*38), 133, 35,14,BLUE_LEV(10) | GREEN_LEV(11) | RED_LEV(17));
-				  cont_fm = 0;
-			  }
-			  EXT_BTN_3_state = true;
-		  }
-		  if(!EXT_BTN_4_state){
-			  HAL_UART_Transmit(&huart3, (uint8_t *)okay_message, sizeof(okay_message)/sizeof(char) - 1, 1000);
-			  HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
 			  cont_lp ++;
 			  if(cont_lp < 5){
 				  for (i = 0; i < cont_lp; i++) fillRect(133+(i*38), 168, 35,14,BLUE);
@@ -264,11 +264,61 @@ int main(void)
 				  for (i = 0; i < 4; i++) fillRect(133+(i*38), 168, 35,14,BLUE_LEV(10) | GREEN_LEV(11) | RED_LEV(17));
 				  cont_lp = 0;
 			  }
+			  EXT_BTN_1_state = true;
+		  }
+		  if(!EXT_BTN_2_state){
+			  cont_fm++;
+			  if(cont_fm < 5){
+				  for (i = 0; i < cont_fm; i++) fillRect(133+(i*38), 133, 35,14,BLUE);
+			  }else{
+				  for (i = 0; i < 4; i++) fillRect(133+(i*38), 133, 35,14,BLUE_LEV(10) | GREEN_LEV(11) | RED_LEV(17));
+				  cont_fm = 0;
+			  }
+			  EXT_BTN_2_state = true;
+		  }
+		  if(!EXT_BTN_3_state){
+			  cont_am++;
+			  if(cont_am < 5){
+				  for (i = 0; i < cont_am; i++) fillRect(133+(i*38), 98, 35,14,BLUE);
+			  }else{
+			  		for (i = 0; i < 4; i++) fillRect(133+(i*38), 98, 35,14,BLUE_LEV(10) | GREEN_LEV(11) | RED_LEV(17));
+			  		cont_am = 0;
+			  }
+			  EXT_BTN_3_state = true;
+		  }
+		  if(!EXT_BTN_4_state){
+			  cont_signal++;
+			  if(cont_signal<5){
+				  for (i=1; i<=cont_signal; i++){
+					  fillRect(24+((i-2)*65), 22, 3,46,BLACK);
+					  fillRect(24+((i-1)*65), 22, 3,46,YELLOW);
+					  fillRect(89+((i-1)*65), 22, 3,46,YELLOW);
+					  fillRect(24+((i-2)*65), 22, 65,3,BLACK);
+					  fillRect(24+((i-2)*65), 65, 65,3,BLACK);
+					  fillRect(24+((i-1)*65), 22, 65,3,YELLOW);
+					  fillRect(24+((i-1)*65), 65, 65,3,YELLOW);
+				  }
+			  }else{
+				  fillRect(219, 22, 3,46,BLACK);
+				  fillRect(284, 22, 3,46,BLACK);
+				  fillRect(24, 22, 3,46,YELLOW);
+				  fillRect(89, 22, 3,46,YELLOW);
+				  fillRect(219, 22, 65,3,BLACK);
+				  fillRect(219, 65, 65,3,BLACK);
+				  fillRect(24, 22, 65,3,YELLOW);
+				  fillRect(24, 65, 65,3,YELLOW);
+				  cont_signal = 1;
+			  }
+			  if(wave_selection < 4){
+				  wave_selection++;
+			  }else{
+				  wave_selection = 1;
+			  }
 			  EXT_BTN_4_state = true;
 		  }
 	}
-}
   /* USER CODE END 3 */
+}
 
 /**
   * @brief System Clock Configuration
@@ -437,7 +487,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 36000-1;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 20-1;
+  htim2.Init.Period = 40-1;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -479,9 +529,9 @@ static void MX_TIM6_Init(void)
 
   /* USER CODE END TIM6_Init 1 */
   htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 36-1;
+  htim6.Init.Prescaler = 55-1;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = 100-1;
+  htim6.Init.Period = 15-1;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
   {
@@ -782,13 +832,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   /* Prevent unused argument(s) compilation warning */
-  UNUSED(htim);
-
-  /* NOTE : This function should not be modified, when the callback is needed,
-            the HAL_TIM_PeriodElapsedCallback could be implemented in the user file
-   */
   if(htim == &htim2){
-	  // Ya pasaron 20ms y sigue en 0, es real esto.
+	  // Ya pasaron 40ms y sigue en 0, es real esto.
 	  if(!HAL_GPIO_ReadPin(EXT_BTN_1_GPIO_Port, EXT_BTN_1_Pin)){
 		  EXT_BTN_1_state = false;
 		  HAL_TIM_Base_Stop(&htim2);
@@ -809,19 +854,43 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 }
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
+	note_received_flag = false;
 	for(int i = 0; i < RX_BUFFER_SIZE; i++){
-		if(rx_buffer[i] >= C2 && rx_buffer[i] <= B5){
-			note_buffer[current_note_in_buffer] = rx_buffer[i];
-			current_note_in_buffer++;
-			if(current_note_in_buffer >= NOTE_BUFFER_SIZE){
-				current_note_in_buffer = 0;
+		if(rx_buffer[i] >= C4 && rx_buffer[i] <= B5){
+			note_buffer[current_note_buffer] = rx_buffer[i];
+			current_note_buffer++;
+			received_note_buffer = rx_buffer[i];
+			note_received_flag = true;
+			if(current_note_buffer >= NOTE_BUFFER_SIZE){
+				current_note_buffer = 0;
 			}
+			HAL_DAC_Stop_DMA(&hdac, DAC_CHANNEL_1);
+			HAL_DAC_Stop_DMA(&hdac, DAC_CHANNEL_2);
+			htim6.Init.Prescaler = PSC_LUT[received_note_buffer - 60] - 1;
+			htim6.Init.Period = ARR_LUT[received_note_buffer - 60] - 1;
+			HAL_TIM_Base_Init(&htim6);
+			  switch(wave_selection){
+				  case 1:
+					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_1, sine_LUT, NS, DAC_ALIGN_12B_R);
+					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_2, sine_LUT, NS, DAC_ALIGN_12B_R);
+					  break;
+				  case 2:
+					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_1, triangle_LUT, NS, DAC_ALIGN_12B_R);
+					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_2, triangle_LUT, NS, DAC_ALIGN_12B_R);
+					  break;
+				  case 3:
+					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_1, sawtooth_LUT, NS, DAC_ALIGN_12B_R);
+					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_2, sawtooth_LUT, NS, DAC_ALIGN_12B_R);
+					  break;
+				  case 4:
+					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_1, sawtooth_LUT, NS, DAC_ALIGN_12B_R);
+					  HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_2, sawtooth_LUT, NS, DAC_ALIGN_12B_R);
+					  break;
+				  default:
+					  wave_selection = 1;
+					  break;
+			  }
 		}
-	}
-}
-void get_sineval(){
-	for(int cnt = 0; cnt < NS; cnt++){
-		sine_val[cnt] = (sin(2*cnt*2*PI/NS - PI/2)+1)*(4096/2);
 	}
 }
 /* USER CODE END 4 */
