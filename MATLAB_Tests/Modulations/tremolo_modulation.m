@@ -17,10 +17,10 @@ clc; close all; clear all;
 %}
 %% Parámetros %%
 % Tremolo
-rate = 5;
+rate = 2;
 depth = 0.8; 
 % Notas
-fc = 440;                       % Como referencia 440 Hz corresponde a A4
+fc = 100;                       % Como referencia 440 Hz corresponde a A4
 fc_2 = 0;
 fc_3 = 0;
 % Frecuencia de muestreo establecida a 44.1 kHz

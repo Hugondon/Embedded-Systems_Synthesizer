@@ -9,7 +9,7 @@ f = 440;
 % periods = 500;
 % T = periods*1/f;
 % t = 0:1/Fs:T-1/Fs;
-t = 0:1/Fs:0.01;
+t = 0:1/Fs:2;
 
 triangle = sawtooth(2*pi*f*t,1/2);
 sine = sin(2*pi*f*t);
@@ -29,20 +29,11 @@ plot(t,triangle, 'k');
 %% Audio%%
 % sound(sine,Fs,16);
 % pause(1);
-% sound(triangle,Fs,16);
-% pause(1);
-% sound(sawtooth,Fs,16);
-% pause(1);
 % sound(square,Fs,16);
 % pause(1);
+% sound(triangle,Fs,16);
+% pause(1);
+sound(sawtooth,Fs,16);
+pause(1);
 
-%% Save File %%
 
-fid  = fopen('File.txt', 'w');
-if fid == - 1
-  error('Cannot open file for writing');
-end
-for i=1:size(sine)
-	fprintf(fid, '%f, ', sine(i));
-end
-fclose(fid);
